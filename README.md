@@ -1,5 +1,5 @@
 # ESCHER: Eschewing Importance Sampling in Games by Computing a History Value Function to Estimate Regret
-<img src="ESCHER_logo.png" width="1000" border="1"/>
+<img src="logo.png" width="1000" border="1"/>
 
 Code for Eschewing Importance Sampling in Games by Computing a History Value Function to Estimate Regret (ESCHER).
 
