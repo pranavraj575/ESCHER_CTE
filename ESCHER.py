@@ -268,7 +268,10 @@ class PolicyNetwork(tf.keras.Model):
             self.activation = tf.keras.layers.ReLU()
         else:
             self.activation = activation
-
+        # (PR) added these so we can use them in self.get_config()
+        self._policy_network_layers = policy_network_layers
+        self._activation_name = activation
+        self._kwargs = kwargs
         self.softmax = tf.keras.layers.Softmax()
 
         self.hidden = []
@@ -285,6 +288,19 @@ class PolicyNetwork(tf.keras.Model):
             policy_network_layers[-1], kernel_initializer='he_normal')
 
         self.out_layer = tf.keras.layers.Dense(num_actions)
+
+    def get_config(self):
+        # (PR) added this method so model.save() works
+        config = super().get_config()
+
+        config.update({
+            'input_size': self._input_size,
+            'policy_network_layers': self._policy_network_layers,
+            'num_actions': self._num_actions,
+            'activation': self._activation_name,
+        })
+        config.update(self._kwargs)
+        return config
 
     @tf.function
     def call(self, inputs):
@@ -969,8 +985,9 @@ class ESCHERSolver(policy.Policy):
                             weights_path = model_path + '.weights.h5'
                             self._policy_network.save_weights(weights_path)
                             print("saved policy weights to ", weights_path)
-                            self.save_policy_network(model_path + "_full_model")
-                            print("saved policy to ", model_path + "full_model")
+                            # (PR) saved full model to dir with .keras extension
+                            self.save_policy_network(model_path + "_full_model.keras")
+                            print("saved policy to ", model_path + "full_model.keras")
                         if self._play_against_random:
                             start_time = time.time()
                             avg_reward = self.play_n_games_against_random(self._num_random_games)
@@ -998,11 +1015,9 @@ class ESCHERSolver(policy.Policy):
 
     def save_policy_network(self, outputfolder):
         """Saves the policy network to the given folder."""
-        os.makedirs(outputfolder, exist_ok=True)
-        # (PR) added saved to dir with .keras extension
-        # TODO: need to fix error here:
-        #   Object PolicyNetwork was created by passing non-serializable argument values in `__init__()`
-        self._policy_network.save(outputfolder + '.keras')
+        assert outputfolder.endswith('.keras') or outputfolder.endswith('.h5'), 'save folder must end in .keras or .h5'
+        os.makedirs(os.path.dirname(outputfolder), exist_ok=True)
+        self._policy_network.save(outputfolder)
 
     def train_policy_network_from_file(self,
                                        tfrecordpath,
