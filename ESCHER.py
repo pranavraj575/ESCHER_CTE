@@ -632,11 +632,22 @@ class ESCHERSolver(policy.Policy):
                     tf.keras.optimizers.Adam(learning_rate=learning_rate))
                 self._regret_train_step.append(self._get_regret_train_graph(player))
 
+        # (PR) TODO: the .build() lines (value and regret networks) creates a warning:
+        #       UserWarning: `build()` was called on layer 'value_network', however the layer does not have a `build()`
+        #       method implemented and it looks like it has unbuilt state. This will cause the layer to be marked as built,
+        #       despite not being actually built, which may cause failures down the line.
+        #       Make sure to implement a proper `build()` method.
+        for reg_net in self._regret_networks + self._regret_networks_train:
+            reg_net.build(self._embedding_size)
         self._create_memories(memory_capacity)
 
         # Initialize value networks, losses, optimizers
         self._val_network = ValueNetwork(self._value_embedding_size, self._value_network_layers)
         self._val_network_train = ValueNetwork(self._value_embedding_size, self._value_network_layers)
+
+        self._val_network.build(self._value_embedding_size)
+        self._val_network_train.build(self._value_embedding_size)
+
         self._loss_value = tf.keras.losses.MeanSquaredError()
         self._optimizer_value = tf.keras.optimizers.Adam(learning_rate=learning_rate)
         self._value_train_step = self._get_value_train_graph()
@@ -648,6 +659,8 @@ class ESCHERSolver(policy.Policy):
             self._policy_network = PolicyNetwork(self._embedding_size,
                                                  self._policy_network_layers,
                                                  self._num_actions)
+            # (PR) TODO: following build line creates a UserWarning
+            self._policy_network.build(self._embedding_size)
             self._optimizer_policy = tf.keras.optimizers.Adam(
                 learning_rate=self._learning_rate)
             self._loss_policy = tf.keras.losses.MeanSquaredError()
@@ -658,6 +671,8 @@ class ESCHERSolver(policy.Policy):
             self._regret_networks_train[player] = RegretNetwork(
                 self._embedding_size, self._regret_network_layers,
                 self._num_actions)
+            # (PR) TODO: following build line creates a UserWarning
+            self._regret_networks_train[player].build(self._embedding_size)
             self._optimizer_regrets[player] = tf.keras.optimizers.Adam(
                 learning_rate=self._learning_rate)
             self._regret_train_step[player] = (
@@ -677,6 +692,8 @@ class ESCHERSolver(policy.Policy):
         with tf.device(self._train_device):
             self._val_network_train = ValueNetwork(
                 self._value_embedding_size, self._value_network_layers)
+            # (PR) TODO: following build line creates a UserWarning
+            self._val_network_train.build(self._value_embedding_size)
             self._optimizer_value = tf.keras.optimizers.Adam(
                 learning_rate=self._learning_rate)
             self._value_train_step = (self._get_value_train_graph())
@@ -948,9 +965,11 @@ class ESCHERSolver(policy.Policy):
                             save_path_model = save_path_convs + "/" + timestr
                             os.makedirs(save_path_model, exist_ok=True)
                             model_path = save_path_model + "/policy_nodes_" + str(num_nodes)
-                            self._policy_network.save_weights(model_path)
-                            print("saved policy to ", model_path)
-                            self.save_policy_network(model_path + "full_model")
+                            # (PR) added .weights.h5
+                            weights_path = model_path + '.weights.h5'
+                            self._policy_network.save_weights(weights_path)
+                            print("saved policy weights to ", weights_path)
+                            self.save_policy_network(model_path + "_full_model")
                             print("saved policy to ", model_path + "full_model")
                         if self._play_against_random:
                             start_time = time.time()
@@ -980,7 +999,10 @@ class ESCHERSolver(policy.Policy):
     def save_policy_network(self, outputfolder):
         """Saves the policy network to the given folder."""
         os.makedirs(outputfolder, exist_ok=True)
-        self._policy_network.save(outputfolder)
+        # (PR) added saved to dir with .keras extension
+        # TODO: need to fix error here:
+        #   Object PolicyNetwork was created by passing non-serializable argument values in `__init__()`
+        self._policy_network.save(outputfolder + '.keras')
 
     def train_policy_network_from_file(self,
                                        tfrecordpath,
@@ -1308,8 +1330,11 @@ class ESCHERSolver(policy.Policy):
                     if self._all_actions:
                         target = policy @ child_values
                     else:
+                        if isinstance(child_value, np.ndarray): child_value = child_value.item()
                         target = child_value * policy[sampled_action] / sample_policy[sampled_action]
                 elif self._debug_val:
+                    # convert from numpy to float
+                    if isinstance(child_value, np.ndarray): child_value = child_value.item()
                     target = child_value * policy[sampled_action] / sample_policy[sampled_action]
                     print(target, 'value target')
                 else:

@@ -16,3 +16,5 @@ Instructions for installing both are [here.](https://github.com/indylab/nxdo/blo
 <img src="logo.jpg" border="1"/>
 
 For more information about ESCHER, please see [the paper.](https://arxiv.org/abs/2206.04122)
+
+Tested with python 3.11
