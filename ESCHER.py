@@ -1231,10 +1231,13 @@ class ESCHERSolver(policy.Policy):
         _, policy = self._sample_action_from_regret(state, state.current_player())
 
         if cur_player == player or train_value:
-            uniform_policy = (np.array(state.legal_actions_mask()) / num_legal_actions)
+            reference_policy = (np.array(state.legal_actions_mask()) / num_legal_actions)
+            # TODO: HERE, we can set a specific reference policy
+            #  we can use a mixed version of the old policy network upon restarting
+            #   (i.e. now need to track an extra policy network)
             if self._use_balanced_probs:
-                uniform_policy = self._balanced_probs[state.information_state_string()]
-            sample_policy = expl * uniform_policy + (1.0 - expl) * policy
+                reference_policy = self._balanced_probs[state.information_state_string()]
+            sample_policy = expl * reference_policy + (1.0 - expl) * policy
         else:
             sample_policy = policy
 
@@ -1680,7 +1683,8 @@ if __name__ == "__main__":
     # Hyperparameters not tuned
 
     train_device = 'cpu'
-    save_path = "./tmp/results/"
+    save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'tmp', 'results', 'kuhn')
     os.makedirs(save_path, exist_ok=True)
 
     game = pyspiel.load_game("kuhn_poker")
