@@ -483,6 +483,7 @@ class ESCHERSolver(policy.Policy):
                  clear_value_buffer: bool = True,
                  val_bootstrap=False,
                  oshi_zumo=False,
+                 reference_policies = None,
                  use_balanced_probs: bool = False,
                  battleship=False,
                  starting_coins=8,
@@ -506,6 +507,8 @@ class ESCHERSolver(policy.Policy):
           num_traversals: Number of traversals per iteration.
           num_val_fn_traversals: Number of history value function traversals per iteration
           learning_rate: Learning rate.
+          reference_policies: a dict from players to strategies to use as FIXED reference policies for each player
+            a strategy is a map of (state -> action distribution)
           batch_size_regret: (int) Batch size to sample from regret memories.
           batch_size_average_policy: (int) Batch size to sample from average_policy memories.
           memory_capacity: Number of samples that can be stored in memory.
@@ -605,6 +608,7 @@ class ESCHERSolver(policy.Policy):
         self._squared_errors_child = []
         self._balanced_probs = {}
         self._use_balanced_probs = use_balanced_probs
+        self._reference_policies = reference_policies
         self._val_op_prob = val_op_prob
         self._val_bootstrap = val_bootstrap
         self._debug_val = debug_val
@@ -1235,7 +1239,9 @@ class ESCHERSolver(policy.Policy):
             # TODO: HERE, we can set a specific reference policy
             #  we can use a mixed version of the old policy network upon restarting
             #   (i.e. now need to track an extra policy network)
-            if self._use_balanced_probs:
+            if self._reference_policies is not None:
+                reference_policy = self._reference_policies[cur_player](state)
+            elif self._use_balanced_probs:
                 reference_policy = self._balanced_probs[state.information_state_string()]
             sample_policy = expl * reference_policy + (1.0 - expl) * policy
         else:
