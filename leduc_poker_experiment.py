@@ -1,7 +1,7 @@
 from ESCHER import *
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt, os
 
     train_device = 'cpu'
     save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -33,10 +33,11 @@ if __name__ == "__main__":
         batch_size_value=batch_size_val,
         train_device=train_device,
     )
-    if True:
+    convs_path=save_path + '_convs.npy'
+    if not os.path.exists(convs_path):
         regret, pol_loss, convs, nodes = deep_cfr_solver.solve(save_path_convs=save_path)
 
-    arr = np.load(os.path.join(save_path, '_convs.npy'))
+    arr = np.load(convs_path)
     plt.plot(arr)
     plt.show()
 
