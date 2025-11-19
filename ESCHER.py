@@ -165,6 +165,29 @@ def get_markov_soccer_hist_obs(obs_tensor, current_player, last_action):
     return np.append(obs_tensor, last_action_array)
 
 
+def infostate_vec_legal_actions_and_mask(state, game=None):
+    cur_player = state.current_player()
+    legal_actions = state.legal_actions(cur_player)
+    legal_actions_mask = tf.constant(
+        state.legal_actions_mask(cur_player), dtype=tf.float32)
+    if game is None:
+        game = ''
+    if game == 'oshi zumo':
+        observation_tensor = state.observation_tensor()
+        info_state_vector = tf.constant(observation_tensor, dtype=tf.float32)
+    elif game == 'battleship':
+        info_state_vector = tf.constant(battleship_infostate_tensor(state, cur_player),
+                                        dtype=tf.float32)
+    elif game == 'markov soccer':
+        info_state_vector = tf.constant(state.observation_tensor(), dtype=tf.float32)
+    else:
+        info_state_vector = tf.constant(
+            state.information_state_tensor(), dtype=tf.float32)
+    if len(info_state_vector.shape) == 1:
+        info_state_vector = tf.expand_dims(info_state_vector, axis=0)
+    return info_state_vector, legal_actions, legal_actions_mask
+
+
 class ReservoirBuffer(object):
     """Allows uniform sampling over a stream of data.
 
@@ -483,7 +506,7 @@ class ESCHERSolver(policy.Policy):
                  clear_value_buffer: bool = True,
                  val_bootstrap=False,
                  oshi_zumo=False,
-                 reference_policies = None,
+                 reference_policies=None,
                  use_balanced_probs: bool = False,
                  battleship=False,
                  starting_coins=8,
@@ -1477,23 +1500,15 @@ class ESCHERSolver(policy.Policy):
 
     def action_probabilities(self, state):
         """Returns action probabilities dict for a single batch."""
-        cur_player = state.current_player()
-        legal_actions = state.legal_actions(cur_player)
-        legal_actions_mask = tf.constant(
-            state.legal_actions_mask(cur_player), dtype=tf.float32)
+        game = None
         if self._oshi_zumo:
-            observation_tensor = state.observation_tensor()
-            info_state_vector = tf.constant(observation_tensor, dtype=tf.float32)
+            game = 'oshi zumo'
         elif self._battleship:
-            info_state_vector = tf.constant(battleship_infostate_tensor(state, cur_player),
-                                            dtype=tf.float32)
+            game = 'battleship'
         elif self._markov_soccer:
-            info_state_vector = tf.constant(state.observation_tensor(), dtype=tf.float32)
-        else:
-            info_state_vector = tf.constant(
-                state.information_state_tensor(), dtype=tf.float32)
-        if len(info_state_vector.shape) == 1:
-            info_state_vector = tf.expand_dims(info_state_vector, axis=0)
+            game = 'markov soccer'
+
+        info_state_vector, legal_actions, legal_actions_mask = infostate_vec_legal_actions_and_mask(state, game=game)
         probs = self._policy_network((info_state_vector, legal_actions_mask),
                                      training=False)
         probs = probs.numpy()
