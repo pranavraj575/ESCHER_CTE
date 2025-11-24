@@ -170,7 +170,7 @@ def infostate_vec_legal_actions_and_mask(state, game=None):
     legal_actions = state.legal_actions(cur_player)
     legal_actions_mask = tf.constant(
         state.legal_actions_mask(cur_player), dtype=tf.float32)
-    if game is None:
+    if game is None or type(game) != str:
         game = ''
     if game == 'oshi zumo':
         observation_tensor = state.observation_tensor()
@@ -506,7 +506,7 @@ class ESCHERSolver(policy.Policy):
                  clear_value_buffer: bool = True,
                  val_bootstrap=False,
                  oshi_zumo=False,
-                 reference_policies=None,
+                 reference_policy=None,
                  use_balanced_probs: bool = False,
                  battleship=False,
                  starting_coins=8,
@@ -530,8 +530,8 @@ class ESCHERSolver(policy.Policy):
           num_traversals: Number of traversals per iteration.
           num_val_fn_traversals: Number of history value function traversals per iteration
           learning_rate: Learning rate.
-          reference_policies: a dict from players to strategies to use as FIXED reference policies for each player
-            a strategy is a map of (state -> action distribution)
+          reference_policy: pyspiel policy.Policy object,
+            reference_policy.action_probabilities(state) returns a dict of (action -> probability)
           batch_size_regret: (int) Batch size to sample from regret memories.
           batch_size_average_policy: (int) Batch size to sample from average_policy memories.
           memory_capacity: Number of samples that can be stored in memory.
@@ -631,7 +631,7 @@ class ESCHERSolver(policy.Policy):
         self._squared_errors_child = []
         self._balanced_probs = {}
         self._use_balanced_probs = use_balanced_probs
-        self._reference_policies = reference_policies
+        self._reference_policy = reference_policy
         self._val_op_prob = val_op_prob
         self._val_bootstrap = val_bootstrap
         self._debug_val = debug_val
@@ -1263,10 +1263,12 @@ class ESCHERSolver(policy.Policy):
             # TODO: HERE, we can set a specific reference policy
             #  we can use a mixed version of the old policy network upon restarting
             #   (i.e. now need to track an extra policy network)
-            if (self._reference_policies is not None and
-                    cur_player in self._reference_policies and
-                    self._reference_policies[cur_player] is not None):
-                reference_policy = self._reference_policies[cur_player](state)
+            if self._reference_policy is not None:
+                ref_policy_dict = self._reference_policy.action_probabilities(state)
+                # maybe dont need this line
+                reference_policy = np.zeros_like(reference_policy)
+                for a in ref_policy_dict:
+                    reference_policy[a] = ref_policy_dict[a]
             elif self._use_balanced_probs:
                 reference_policy = self._balanced_probs[state.information_state_string()]
             sample_policy = expl*reference_policy + (1.0 - expl)*pol
@@ -1702,27 +1704,51 @@ class ESCHERSolver(policy.Policy):
         return main_loss
 
 
-class ReferencePolicy:
-    def __init__(self, policy_net: PolicyNetwork, game=None):
+# pyspiel policy.Policy object
+class NetworkReferencePolicy(policy.Policy):
+    def __init__(self, policy_net: PolicyNetwork, game, player_ids=None):
         """
         game: look at infostate_vec_legal_actions_and_mask
             either 'oshi zumo', 'battleship', 'markov soccer', or None
             if None, will assume state is a pyspiel object and use state.information_state_tensor
         """
+        if player_ids is None:
+            player_ids = list(range(game.num_players()))
+        super().__init__(game, player_ids)
         self._policy_network = policy_net
-        self._game = game
 
-    def __call__(self, state):
+    def action_probabilities(self, state):
         """
         state is a pyspiel state (reference policy is used in only one spot in the ESCHER class, use ctrl f on 'reference_policy',
         """
-        game = self._game
 
-        info_state_vector, legal_actions, legal_actions_mask = infostate_vec_legal_actions_and_mask(state, game=game)
+        info_state_vector, legal_actions, legal_actions_mask = infostate_vec_legal_actions_and_mask(state, game=self.game)
         probs = self._policy_network((info_state_vector, legal_actions_mask),
-                                     training=False)
-        return probs.numpy().flatten()
-        # return {action: probs[0][action] for action in legal_actions}
+                                     training=False).numpy().flatten()
+        return {action: probs[action] for action in legal_actions}
+
+
+class PolicyMixer(policy.Policy):
+    def __init__(self, policy: policy.Policy, game, uniform_p=.5, player_ids=None):
+        """
+        mixes an existing Policy with a uniform random policy
+            policy(state) = p*uniform(state's actions) + (1-p)*policy.action_probs(state)
+        Args:
+            uniform_p: proportion to include uniform random policy
+        """
+        if player_ids is None:
+            player_ids = list(range(game.num_players()))
+        super().__init__(game, player_ids)
+        self._uniform_p = uniform_p
+        self._pol = policy
+
+    def action_probabilities(self, state):
+        """
+        state is a pyspiel state (reference policy is used in only one spot in the ESCHER class, use ctrl f on 'reference_policy',
+        """
+        action_probs = self._pol.action_probabilities(state)
+        return {a: self._uniform_p/len(action_probs) + (1 - self._uniform_p)*prob
+                for a, prob in action_probs.items()}
 
 
 if __name__ == "__main__":
@@ -1738,14 +1764,26 @@ if __name__ == "__main__":
 
     ref_policy = None
     if True:
+        solver = pyspiel.CFRPlusSolver(game)
+        print('solving game directly using pyspiel\'s CFR')
+        for i in range(1000):
+            if not i%100:
+                average_policy = solver.average_policy()
+                print(average_policy)
+                exploit = pyspiel.exploitability(game, average_policy)
+                print(f"iteration {i}; Exploitability: {exploit}")
+            solver.evaluate_and_update_policy()
+        average_policy = solver.average_policy()
+        ref_policy1 = PolicyMixer(average_policy, game=game, uniform_p=.5)
+
         embedding_size = len(game.new_initial_state().information_state_tensor(0))
         policy_network_layers = (256, 128)
         num_actions = game.num_distinct_actions()
 
         policy_net = PolicyNetwork(embedding_size,
-                               policy_network_layers,
-                               num_actions)
-        ref_policy = ReferencePolicy(policy_net=policy_net, )
+                                   policy_network_layers,
+                                   num_actions)
+        ref_policy2 = NetworkReferencePolicy(policy_net=policy_net, game=game)
 
     iters = 30
     num_traversals = 500
@@ -1767,7 +1805,7 @@ if __name__ == "__main__":
         value_network_train_steps=val_train_steps,
         batch_size_value=batch_size_val,
         train_device=train_device,
-        reference_policies={0: ref_policy, 1: ref_policy},
+        reference_policy=ref_policy1,
     )
 
     regret, pol_loss, convs, nodes = deep_cfr_solver.solve(save_path_convs=save_path)
