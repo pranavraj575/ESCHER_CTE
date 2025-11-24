@@ -6,16 +6,17 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt, os
 
     train_device = 'cpu'
+    game_name = "leduc_poker"
 
     TRIAL = 'default'  # default ESCHER
     # TRIAL='ESCHER_CTE' # ESCHER CTE
-    # TRIAL = 'true_NE'  # ESCHER given a mixed version of the true NE to start with
+    TRIAL = 'true_NE'  # ESCHER given a mixed version of the true NE to start with
     only_plot = False
     DIR = os.path.dirname(os.path.abspath(__file__))
-    save_path = os.path.join(DIR, 'tmp', 'results', 'leduc', TRIAL)
+    save_path = os.path.join(DIR, 'tmp', 'results', game_name, TRIAL)
     os.makedirs(save_path, exist_ok=True)
 
-    game = pyspiel.load_game("leduc_poker")
+    game = pyspiel.load_game(game_name)
     all_trials = ['default', 'ESCHER_CTE', 'true_NE']
     convs_path = save_path + '_convs.npy'
     if not only_plot:
@@ -28,14 +29,13 @@ if __name__ == "__main__":
         for i in range(1420):
             if not i%100:
                 average_policy = solver.average_policy()
-                print(average_policy)
                 exploit = pyspiel.exploitability(game, average_policy)
                 print(f"iteration {i}; Exploitability: {exploit}")
             solver.evaluate_and_update_policy()
         average_policy = solver.average_policy()
-        ref_policy = PolicyMixer(average_policy, game=game, uniform_p=.5)
+        ref_policy = PolicyMixer(average_policy, game=game, uniform_p=1)
 
-    iters = 300
+    iters = 100
     num_traversals = 500
     num_val_fn_traversals = 500
     regret_train_steps = 200
@@ -63,11 +63,13 @@ if __name__ == "__main__":
             plt.plot(convs)
             plt.show()
     for trial in all_trials:
-        convs_path = os.path.join(DIR, 'tmp', 'results', 'leduc', trial) + '_convs.npy'
+        convs_path = os.path.join(DIR, 'tmp', 'results', game_name, trial) + '_convs.npy'
 
         if os.path.exists(convs_path):
             print('loading convs from', convs_path)
             convs = np.load(convs_path)
+            print(convs)
             plt.plot(convs, label=trial)
-        plt.show()
-        plt.close()
+    plt.legend()
+    plt.show()
+    plt.close()
