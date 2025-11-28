@@ -95,7 +95,11 @@ if __name__ == "__main__":
                 print('loading convs from', convs_path)
                 convs = np.load(convs_path)
                 print(convs)
-                plt.plot(convs, label=trial)
+                plt.plot(np.arange(len(convs))*check_exploitability_every,
+                         convs,
+                         label=trial)
+            plt.xlabel('Epochs')
+            plt.ylabel('exploitability (nash conv)')
         plt.legend()
         plt.show()
         plt.close()
