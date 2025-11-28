@@ -1260,10 +1260,8 @@ class ESCHERSolver(policy.Policy):
 
         if cur_player == player or train_value:
             reference_policy = (np.array(state.legal_actions_mask())/num_legal_actions)
-            # TODO: HERE, we can set a specific reference policy
-            #  we can use a mixed version of the old policy network upon restarting
-            #   (i.e. now need to track an extra policy network)
             if self._reference_policy is not None:
+                # TODO: maybe mix here, and allow mixing with balanced policy
                 ref_policy_dict = self._reference_policy.action_probabilities(state)
                 # maybe dont need this line
                 reference_policy = np.zeros_like(reference_policy)

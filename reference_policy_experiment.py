@@ -10,6 +10,12 @@ if __name__ == "__main__":
     parser.add_argument('--trial', required=False, default='default', help='trial to use', choices=all_trials)
     parser.add_argument('--plot', required=False, action='store_true', help='only plot past results')
     parser.add_argument('--recollect', required=False, action='store_true', help='collect results again')
+    parser.add_argument('--p',
+                        required=False,
+                        default=0.5,
+                        help='if mixing reference policy, how much should the mixed (i.e. uniform) policy be included',
+                        type=float,
+                        )
 
     args = parser.parse_args()
     from ESCHER import ESCHERSolver, PolicyMixer
@@ -44,14 +50,14 @@ if __name__ == "__main__":
                 print(f"iteration {i}; Exploitability: {exploit}")
             solver.evaluate_and_update_policy()
         average_policy = solver.average_policy()
-        ref_policy = PolicyMixer(average_policy, game=game, uniform_p=1)
+        ref_policy = PolicyMixer(average_policy, game=game, uniform_p=args.p)
 
     iters = 100
-    num_traversals = 100  # 500
-    num_val_fn_traversals = 100  # 500
-    regret_train_steps = 50  # 200
-    val_train_steps = 50  # 200
-    policy_net_train_steps = 200  # 1000
+    num_traversals = 500
+    num_val_fn_traversals = 500
+    regret_train_steps = 200
+    val_train_steps = 200
+    policy_net_train_steps = 1000
     batch_size_regret = 256
     batch_size_val = 256
 
