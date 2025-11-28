@@ -5,7 +5,9 @@ if __name__ == "__main__":
     all_trials = ['default',  # default ESCHER
                   'ESCHER_CTE',  # ESCHER CTE
                   'true_NE',  # ESCHER given a mixed version of the true NE to start with
+                  'true_NE_warm',  # true NE + warm starting
                   ]
+    # TODO: implement warm starts
     parser.add_argument('--game', required=True, help='name of pyspiel game', action='store')
     parser.add_argument('--trial', required=False, default='default', help='trial to use', choices=all_trials)
     parser.add_argument('--plot', required=False, action='store_true', help='only plot past results')
@@ -40,7 +42,7 @@ if __name__ == "__main__":
         print('saving convs to', convs_path)
 
     ref_policy = None
-    if TRIAL == 'true_NE':
+    if TRIAL == 'true_NE' or TRIAL == 'true_NE_warm':
         solver = pyspiel.CFRPlusSolver(game)
         print('solving game directly using pyspiel\'s CFR')
         for i in range(1420):
