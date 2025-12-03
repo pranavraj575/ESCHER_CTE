@@ -38,6 +38,7 @@ import random
 import numpy as np
 import tensorflow as tf
 
+from nn_classes import (PolicyNetwork,RegretNetwork,ValueNetwork)
 from open_spiel.python import policy
 from open_spiel.python.algorithms import exploitability
 
@@ -50,6 +51,7 @@ import time
 REGRET_TRAIN_SHUFFLE_SIZE = 100000
 VALUE_TRAIN_SHUFFLE_SIZE = 100000
 AVERAGE_POLICY_TRAIN_SHUFFLE_SIZE = 1000000
+
 
 def battleship_history_tensor(state):
     """
@@ -66,7 +68,7 @@ def battleship_history_tensor(state):
     # next 4 spots are all of player 0's actions
     # then repeat for player 1
     history = state.history()
-    history_tensor = np.zeros(2 * (4 + 4 + 4))
+    history_tensor = np.zeros(2*(4 + 4 + 4))
     b_map = {4: 0, 6: 1, 8: 2, 9: 3}
 
     for i in range(len(history)):
@@ -84,7 +86,7 @@ def battleship_history_tensor(state):
             history_tensor[12 + 4 + action] = 1
         else:
             action = history[i]
-            if i % 2 == 0:
+            if i%2 == 0:
                 history_tensor[8 + action] = 1
             else:
                 history_tensor[12 + 8 + action] = 1
@@ -114,7 +116,7 @@ def battleship_infostate_tensor(state, player):
         '1_1': 3,
     }
 
-    info_tensor = np.zeros(6 * 4)
+    info_tensor = np.zeros(6*4)
     info_list = state.information_state_string(player).split("/")
 
     for i in range(len(info_list)):
@@ -132,17 +134,17 @@ def battleship_infostate_tensor(state, player):
             if info[0] == 's':
                 index = string_to_index_map[info[-5:-2]]
                 if info[-1] == 'H':
-                    info_tensor[index + 2 * 4] = 1
+                    info_tensor[index + 2*4] = 1
                 elif info[-1] == 'W':
-                    info_tensor[index + 3 * 4] = 1
+                    info_tensor[index + 3*4] = 1
                 elif info[-1] == 'S':
-                    info_tensor[index + 4 * 4] = 1
+                    info_tensor[index + 4*4] = 1
                 else:
                     print(info, "unexpected infostate")
                     return None
             elif info[0] == 'o':
                 index = string_to_index_map[info[-3:]]
-                info_tensor[index + 5 * 4] = 1
+                info_tensor[index + 5*4] = 1
             else:
                 print(info, 'unexpected infostate')
                 return None
@@ -232,205 +234,6 @@ class ReservoirBuffer(object):
 
     def get_num_calls(self):
         return self._add_calls
-
-
-class SkipDense(tf.keras.layers.Layer):
-    """Dense Layer with skip connection."""
-
-    def __init__(self, units, **kwargs):
-        super().__init__(**kwargs)
-        self.hidden = tf.keras.layers.Dense(units, kernel_initializer='he_normal')
-
-    def call(self, x):
-        return self.hidden(x) + x
-
-
-class PolicyNetwork(tf.keras.Model):
-    """Implements the policy network as an MLP.
-
-    Implements the policy network as a MLP with skip connections in adjacent
-    layers with the same number of units, except for the last hidden connection
-    where a layer normalization is applied.
-    """
-
-    def __init__(self,
-                 input_size,
-                 policy_network_layers,
-                 num_actions,
-                 activation='leakyrelu',
-                 **kwargs):
-        super().__init__(**kwargs)
-        self._input_size = input_size
-        self._num_actions = num_actions
-        if activation == 'leakyrelu':
-            self.activation = tf.keras.layers.LeakyReLU(alpha=0.2)
-        elif activation == 'relu':
-            self.activation = tf.keras.layers.ReLU()
-        else:
-            self.activation = activation
-
-        self.softmax = tf.keras.layers.Softmax()
-
-        self.hidden = []
-        prevunits = 0
-        for units in policy_network_layers[:-1]:
-            if prevunits == units:
-                self.hidden.append(SkipDense(units))
-            else:
-                self.hidden.append(
-                    tf.keras.layers.Dense(units, kernel_initializer='he_normal'))
-            prevunits = units
-        self.normalization = tf.keras.layers.LayerNormalization()
-        self.lastlayer = tf.keras.layers.Dense(
-            policy_network_layers[-1], kernel_initializer='he_normal')
-
-        self.out_layer = tf.keras.layers.Dense(num_actions)
-
-    @tf.function
-    def call(self, inputs):
-        """Applies Policy Network.
-
-        Args:
-            inputs: Tuple representing (info_state, legal_action_mask)
-
-        Returns:
-            Action probabilities
-        """
-        x, mask = inputs
-        for layer in self.hidden:
-            x = layer(x)
-            x = self.activation(x)
-
-        x = self.normalization(x)
-        x = self.lastlayer(x)
-        x = self.activation(x)
-        x = self.out_layer(x)
-        x = tf.where(mask == 1, x, -10e20)
-        x = self.softmax(x)
-        return x
-
-
-class RegretNetwork(tf.keras.Model):
-    """Implements the regret network as an MLP.
-
-    Implements the regret network as an MLP with skip connections in
-    adjacent layers with the same number of units, except for the last hidden
-    connection where a layer normalization is applied.
-    """
-
-    def __init__(self,
-                 input_size,
-                 regret_network_layers,
-                 num_actions,
-                 activation='leakyrelu',
-                 **kwargs):
-        super().__init__(**kwargs)
-        self._input_size = input_size
-        self._num_actions = num_actions
-        if activation == 'leakyrelu':
-            self.activation = tf.keras.layers.LeakyReLU(alpha=0.2)
-        elif activation == 'relu':
-            self.activation = tf.keras.layers.ReLU()
-        else:
-            self.activation = activation
-
-        self.hidden = []
-        prevunits = 0
-        for units in regret_network_layers[:-1]:
-            if prevunits == units:
-                self.hidden.append(SkipDense(units))
-            else:
-                self.hidden.append(
-                    tf.keras.layers.Dense(units, kernel_initializer='he_normal'))
-            prevunits = units
-        self.normalization = tf.keras.layers.LayerNormalization()
-        self.lastlayer = tf.keras.layers.Dense(
-            regret_network_layers[-1], kernel_initializer='he_normal')
-
-        self.out_layer = tf.keras.layers.Dense(num_actions)
-
-    @tf.function
-    def call(self, inputs):
-        """Applies Regret Network.
-
-        Args:
-            inputs: Tuple representing (info_state, legal_action_mask)
-
-        Returns:
-            Cumulative regret for each info_state action
-        """
-        x, mask = inputs
-        for layer in self.hidden:
-            x = layer(x)
-            x = self.activation(x)
-
-        x = self.normalization(x)
-        x = self.lastlayer(x)
-        x = self.activation(x)
-        x = self.out_layer(x)
-        x = mask * x
-
-        return x
-
-
-class ValueNetwork(tf.keras.Model):
-    """Implements the history value network as an MLP.
-
-    Implements the history value network as an MLP with skip connections in
-    adjacent layers with the same number of units, except for the last hidden
-    connection where a layer normalization is applied.
-    """
-
-    def __init__(self,
-                 input_size,
-                 val_network_layers,
-                 activation='leakyrelu',
-                 **kwargs):
-        super().__init__(**kwargs)
-        self._input_size = input_size
-        if activation == 'leakyrelu':
-            self.activation = tf.keras.layers.LeakyReLU(alpha=0.2)
-        elif activation == 'relu':
-            self.activation = tf.keras.layers.ReLU()
-        else:
-            self.activation = activation
-
-        self.hidden = []
-        prevunits = 0
-        for units in val_network_layers[:-1]:
-            if prevunits == units:
-                self.hidden.append(SkipDense(units))
-            else:
-                self.hidden.append(
-                    tf.keras.layers.Dense(units, kernel_initializer='he_normal'))
-            prevunits = units
-        self.normalization = tf.keras.layers.LayerNormalization()
-        self.lastlayer = tf.keras.layers.Dense(
-            val_network_layers[-1], kernel_initializer='he_normal')
-
-        self.out_layer = tf.keras.layers.Dense(1)
-
-    @tf.function
-    def call(self, inputs):
-        """Applies Value Network.
-
-        Args:
-            inputs: Tuple representing (info_state, legal_action_mask)
-
-        Returns:
-            Cumulative regret for each info_state action
-        """
-        x, mask = inputs
-        for layer in self.hidden:
-            x = layer(x)
-            x = self.activation(x)
-
-        x = self.normalization(x)
-        x = self.lastlayer(x)
-        x = self.activation(x)
-        x = self.out_layer(x)
-
-        return x
 
 
 class ESCHERSolver(policy.Policy):
@@ -930,7 +733,7 @@ class ESCHERSolver(policy.Policy):
         for i in range(n):
             reward = self.play_game_against_random()
             total_reward += reward
-        return total_reward / (2 * n)
+        return total_reward/(2*n)
 
     def print_mse(self):
         # track MSE
@@ -941,8 +744,8 @@ class ESCHERSolver(policy.Policy):
             ray.get(w.reset_squared_errors.remote())
             squared_errors_child.extend(ray.get(w.get_squared_errors_child.remote()))
             ray.get(w.reset_squared_errors_child.remote())
-        print(sum(squared_errors) / len(squared_errors), "Mean Squared Errors")
-        print(sum(squared_errors_child) / len(squared_errors_child), "Mean Squared Errors Child")
+        print(sum(squared_errors)/len(squared_errors), "Mean Squared Errors")
+        print(sum(squared_errors_child)/len(squared_errors_child), "Mean Squared Errors Child")
 
     def solve(self, save_path_convs=None):
         """Solution logic for Deep CFR."""
@@ -1046,7 +849,7 @@ class ESCHERSolver(policy.Policy):
                     # check exploitability
                     self._iteration += 1
                     self._update_iterations()
-                    if i % self._check_exploitability_every == 0:
+                    if i%self._check_exploitability_every == 0:
                         exp_start_time = time.time()
                         self._reinitialize_policy_network()
                         policy_loss = self._learn_average_policy_network()
@@ -1210,7 +1013,7 @@ class ESCHERSolver(policy.Policy):
         # Applies Eq. 9 of Schmid et al. '19
         baseline = self._baseline(state, aidx)
         if aidx == sampled_aidx:
-            return baseline + (child_value - baseline) / sample_prob
+            return baseline + (child_value - baseline)/sample_prob
         else:
             return baseline
 
@@ -1223,7 +1026,7 @@ class ESCHERSolver(policy.Policy):
             val = 0
             for aidx in range(len(outcomes)):
                 new_state = state.child(outcomes[aidx])
-                val += probs[aidx] * self._exact_value(new_state, update_player)
+                val += probs[aidx]*self._exact_value(new_state, update_player)
             return val
         cur_player = state.current_player()
         legal_actions = state.legal_actions()
@@ -1232,7 +1035,7 @@ class ESCHERSolver(policy.Policy):
         val = 0
         for aidx in range(num_legal_actions):
             new_state = state.child(legal_actions[aidx])
-            val += policy[aidx] * self._exact_value(new_state, update_player)
+            val += policy[aidx]*self._exact_value(new_state, update_player)
         return val
 
     def _get_balanced_probs(self, state):
@@ -1252,7 +1055,7 @@ class ESCHERSolver(policy.Policy):
                 nodes = self._get_balanced_probs(state.child(action))
                 balanced_probs[action] = nodes
                 num_nodes += nodes
-            self._balanced_probs[state.information_state_string()] = balanced_probs / balanced_probs.sum()
+            self._balanced_probs[state.information_state_string()] = balanced_probs/balanced_probs.sum()
             return num_nodes
 
     def _traverse_game_tree(self, state, player, my_reach, opp_reach, sample_reach,
@@ -1282,7 +1085,7 @@ class ESCHERSolver(policy.Policy):
             action = outcomes[aidx]
             new_state = state.child(action)
             return self._traverse_game_tree(new_state, player, my_reach,
-                                            probs[aidx] * opp_reach, probs[aidx] * sample_reach, my_sample_reach,
+                                            probs[aidx]*opp_reach, probs[aidx]*sample_reach, my_sample_reach,
                                             train_regret, train_value, expl=expl,
                                             track_mean_squares=track_mean_squares, val_test=val_test,
                                             last_action=action)
@@ -1300,10 +1103,10 @@ class ESCHERSolver(policy.Policy):
         _, policy = self._sample_action_from_regret(state, state.current_player())
 
         if cur_player == player or train_value:
-            uniform_policy = (np.array(state.legal_actions_mask()) / num_legal_actions)
+            uniform_policy = (np.array(state.legal_actions_mask())/num_legal_actions)
             if self._use_balanced_probs:
                 uniform_policy = self._balanced_probs[state.information_state_string()]
-            sample_policy = expl * uniform_policy + (1.0 - expl) * policy
+            sample_policy = expl*uniform_policy + (1.0 - expl)*policy
         else:
             sample_policy = policy
 
@@ -1324,21 +1127,21 @@ class ESCHERSolver(policy.Policy):
             self._squared_errors_child.append(squared_child_error)
 
         if cur_player == player:
-            new_my_reach = my_reach * policy[sampled_action]
+            new_my_reach = my_reach*policy[sampled_action]
             new_opp_reach = opp_reach
-            new_my_sample_reach = my_sample_reach * sample_policy[sampled_action]
+            new_my_sample_reach = my_sample_reach*sample_policy[sampled_action]
         else:
             new_my_reach = my_reach
-            new_opp_reach = opp_reach * policy[sampled_action]
+            new_opp_reach = opp_reach*policy[sampled_action]
             new_my_sample_reach = my_sample_reach
-        new_sample_reach = sample_reach * sample_policy[sampled_action]
+        new_sample_reach = sample_reach*sample_policy[sampled_action]
 
         iw_sampled_value, sampled_value = self._traverse_game_tree(new_state, player, new_my_reach,
                                                                    new_opp_reach, new_sample_reach, new_my_sample_reach,
                                                                    train_regret, train_value, expl=expl,
                                                                    track_mean_squares=track_mean_squares,
                                                                    val_test=val_test, last_action=sampled_action)
-        importance_weighted_sampled_value = iw_sampled_value * policy[sampled_action] / sample_policy[sampled_action]
+        importance_weighted_sampled_value = iw_sampled_value*policy[sampled_action]/sample_policy[sampled_action]
 
         # Compute each of the child estimated values.
         child_values = np.zeros(num_actions, dtype=np.float64)
@@ -1350,23 +1153,23 @@ class ESCHERSolver(policy.Policy):
                 child_values[action] = self._estimate_value_from_hist(new_cloned_state.clone(), player,
                                                                       last_action=action)
         else:
-            child_values[sampled_action] = child_value / sample_policy[sampled_action]
+            child_values[sampled_action] = child_value/sample_policy[sampled_action]
 
         if train_regret:
             if cur_player == player:
-                cf_action_values = 0 * policy
+                cf_action_values = 0*policy
                 for action in range(num_actions):
                     if self._importance_sampling:
-                        action_sample_reach = my_sample_reach * sample_policy[sampled_action]
-                        cf_value = value_estimate * min(1 / my_sample_reach, self._importance_sampling_threshold)
-                        cf_action_value = child_values[action] * min(1 / action_sample_reach,
-                                                                     self._importance_sampling_threshold)
+                        action_sample_reach = my_sample_reach*sample_policy[sampled_action]
+                        cf_value = value_estimate*min(1/my_sample_reach, self._importance_sampling_threshold)
+                        cf_action_value = child_values[action]*min(1/action_sample_reach,
+                                                                   self._importance_sampling_threshold)
                     else:
                         cf_action_value = child_values[action]
                         cf_value = value_estimate
                     cf_action_values[action] = cf_action_value
 
-                samp_regret = (cf_action_values - cf_value) * state.legal_actions_mask(player)
+                samp_regret = (cf_action_values - cf_value)*state.legal_actions_mask(player)
                 if self._oshi_zumo:
                     network_input = state.observation_tensor()
                 elif self._battleship:
@@ -1412,11 +1215,11 @@ class ESCHERSolver(policy.Policy):
                 assert player == 0
                 if self._val_bootstrap:
                     if self._all_actions:
-                        target = policy @ child_values
+                        target = policy@child_values
                     else:
-                        target = child_value * policy[sampled_action] / sample_policy[sampled_action]
+                        target = child_value*policy[sampled_action]/sample_policy[sampled_action]
                 elif self._debug_val:
-                    target = child_value * policy[sampled_action] / sample_policy[sampled_action]
+                    target = child_value*policy[sampled_action]/sample_policy[sampled_action]
                     print(target, 'value target')
                 else:
                     target = iw_sampled_value
@@ -1454,7 +1257,7 @@ class ESCHERSolver(policy.Policy):
         regrets = tf.maximum(regrets, 0)
         summed_regret = tf.reduce_sum(regrets)
         if summed_regret > 0:
-            matched_regrets = regrets / summed_regret
+            matched_regrets = regrets/summed_regret
         else:
             matched_regrets = tf.one_hot(
                 tf.argmax(tf.where(legal_actions_mask == 1, regrets, -10e20)),
@@ -1631,7 +1434,7 @@ class ESCHERSolver(policy.Policy):
             model = self._regret_networks_train[player]
             with tf.GradientTape() as tape:
                 preds = model((info_states, masks), training=True)
-                main_loss = self._loss_regrets[player](regrets, preds, sample_weight=iterations * 2 / iteration)
+                main_loss = self._loss_regrets[player](regrets, preds, sample_weight=iterations*2/iteration)
                 loss = tf.add_n([main_loss], model.losses)
             gradients = tape.gradient(loss, model.trainable_variables)
             self._optimizer_regrets[player].apply_gradients(
@@ -1759,7 +1562,7 @@ class ESCHERSolver(policy.Policy):
             with tf.GradientTape() as tape:
                 preds = model((info_states, masks), training=True)
                 main_loss = self._loss_policy(
-                    action_probs, preds, sample_weight=iterations * 2 / self._iteration)
+                    action_probs, preds, sample_weight=iterations*2/self._iteration)
                 loss = tf.add_n([main_loss], model.losses)
             gradients = tape.gradient(loss, model.trainable_variables)
             self._optimizer_policy.apply_gradients(
@@ -1798,7 +1601,7 @@ if __name__ == "__main__":
 
     deep_cfr_solver = ray.remote(num_cpus=1, num_gpus=num_gpus)(ESCHERSolver).remote(
         game,
-        num_traversals=int(num_traversals / num_workers),
+        num_traversals=int(num_traversals/num_workers),
         create_worker_group=True,
         num_experience_workers=num_workers,
         num_iterations=iters,
@@ -1809,7 +1612,7 @@ if __name__ == "__main__":
         batch_size_regret=batch_size_regret,
         value_network_train_steps=val_train_steps,
         batch_size_value=batch_size_val,
-        num_val_fn_traversals=int(num_val_fn_traversals / num_workers),
+        num_val_fn_traversals=int(num_val_fn_traversals/num_workers),
         train_device=train_device,
     )
 
