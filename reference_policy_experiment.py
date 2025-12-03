@@ -29,7 +29,6 @@ if __name__ == "__main__":
     game_name = args.game
 
     TRIAL = args.trial
-    only_plot = args.plot
     recollect = args.recollect
     DIR = os.path.dirname(os.path.abspath(__file__))
     save_path = os.path.join(DIR, 'tmp', 'results', game_name, TRIAL)
@@ -38,7 +37,7 @@ if __name__ == "__main__":
     game = pyspiel.load_game(game_name)
 
     convs_path = save_path + '_convs.npy'
-    if not only_plot:
+    if not args.plot:
         print('saving convs to', convs_path)
 
     ref_policy = None
@@ -69,7 +68,7 @@ if __name__ == "__main__":
 
     check_exploitability_every = 10
 
-    if not only_plot:
+    if not args.plot:
         if recollect or not os.path.exists(convs_path):
             deep_cfr_solver = ESCHERSolver(
                 game,
@@ -89,15 +88,18 @@ if __name__ == "__main__":
                 reference_policy=ref_policy,
             )
             regret, pol_loss, convs, nodes = deep_cfr_solver.solve(save_path_convs=save_path)
-            plt.plot(convs)
-            plt.show()
-    for trial in all_trials:
-        convs_path = os.path.join(DIR, 'tmp', 'results', game_name, trial) + '_convs.npy'
-        if os.path.exists(convs_path):
-            print('loading convs from', convs_path)
-            convs = np.load(convs_path)
-            print(convs)
-            plt.plot(convs, label=trial)
-    plt.legend()
-    plt.show()
-    plt.close()
+    if args.plot:
+        for trial in all_trials:
+            convs_path = os.path.join(DIR, 'tmp', 'results', game_name, trial) + '_convs.npy'
+            if os.path.exists(convs_path):
+                print('loading convs from', convs_path)
+                convs = np.load(convs_path)
+                print(convs)
+                plt.plot(np.arange(len(convs))*check_exploitability_every,
+                         convs,
+                         label=trial)
+            plt.xlabel('Epochs')
+            plt.ylabel('exploitability (nash conv)')
+        plt.legend()
+        plt.show()
+        plt.close()
