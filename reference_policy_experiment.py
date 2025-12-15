@@ -24,8 +24,11 @@ if __name__ == "__main__":
     import pyspiel
     import numpy as np
     import matplotlib.pyplot as plt, os
+    import tensorflow as tf
 
     train_device = 'cpu'
+
+    tf.config.set_visible_devices([], 'GPU')
     game_name = args.game
 
     TRIAL = args.trial
@@ -53,7 +56,7 @@ if __name__ == "__main__":
         average_policy = solver.average_policy()
         ref_policy = PolicyMixer(average_policy, game=game, uniform_p=args.p)
 
-    iters = 100
+    iters = 10
     num_traversals = 500
     num_val_fn_traversals = 500
     regret_train_steps = 200
@@ -62,9 +65,9 @@ if __name__ == "__main__":
     batch_size_regret = 256
     batch_size_val = 256
 
-    policy_network_layers = (128, 64)
-    regret_network_layers = (128, 64)
-    value_network_layers = (128, 64)
+    policy_network_layers = (128,128)
+    regret_network_layers = (128,128)
+    value_network_layers = (128,128)
 
     check_exploitability_every = 10
 
@@ -83,11 +86,43 @@ if __name__ == "__main__":
                 policy_network_train_steps=policy_net_train_steps,
                 batch_size_regret=batch_size_regret,
                 value_network_train_steps=val_train_steps,
+                save_regret_networks=os.path.join(save_path, 'regrets'),
                 batch_size_value=batch_size_val,
                 train_device=train_device,
                 reference_policy=ref_policy,
+                all_actions=True,
             )
-            regret, pol_loss, convs, nodes = deep_cfr_solver.solve(save_path_convs=save_path)
+
+            sample_state = game.new_initial_state()
+            if game_name == 'kuhn_poker':
+                sample_state.apply_action(1)
+                sample_state.apply_action(0)
+            else:
+                while sample_state.is_chance_node():
+                    sample_state.apply_action(np.random.choice(sample_state.legal_actions()))
+            sample_player = sample_state.current_player()
+
+            info_state, legal_actions_mask = (deep_cfr_solver._get_info_state_legal_actions(state=sample_state, player=sample_player))
+
+            regrets = deep_cfr_solver._regret_networks[sample_player](
+                (tf.expand_dims(info_state, axis=0), legal_actions_mask),
+                training=False)[0]
+            all_regs = [regrets]
+            all_convs = []
+            for _ in range(10):
+                regret, pol_loss, convs, nodes = deep_cfr_solver.solve(save_path_convs=save_path)
+                regrets2 = deep_cfr_solver._regret_networks[sample_player](
+                    (tf.expand_dims(info_state, axis=0), legal_actions_mask),
+                    training=False)[0]
+                all_regs.append(regrets2)
+                all_convs.append(convs)
+                print('p1 card:', sample_state.information_state_string())
+                print('regrets:')
+                for reg in all_regs:
+                    print('\t', reg)
+                print('solved policy:', solver.average_policy().action_probabilities(sample_state))
+                print('convs', all_convs)
+            quit()
     if args.plot:
         for trial in all_trials:
             convs_path = os.path.join(DIR, 'tmp', 'results', game_name, trial) + '_convs.npy'

@@ -778,9 +778,9 @@ class ESCHERSolver(policy.Policy):
                         regret_losses[p].append(self._learn_regret_network(p))
                         if self._save_regret_networks:
                             os.makedirs(self._save_regret_networks, exist_ok=True)
-                            self._regret_networks[p].save(
-                                os.path.join(self._save_regret_networks,
-                                             f'regretnet_p{p}_it{self._iteration:04}'))
+                            save_path_reg_model = os.path.join(self._save_regret_networks,
+                                                               f'regretnet_p{p}_it{self._iteration:04}.keras')
+                            self._regret_networks[p].save(save_path_reg_model)
                         print(time.time() - regret_traj_time, 'regret train time')
                     if not any([self._oshi_zumo, self._battleship, self._markov_soccer, self._dark_hex,
                                 self._phantom_ttt]):
@@ -1226,17 +1226,7 @@ class ESCHERSolver(policy.Policy):
             self._val_network((tf.expand_dims(hist_state, axis=0), legal_actions_mask), training=False)[0]
         return estimated_val
 
-    def _sample_action_from_regret(self, state, player):
-        """Returns an info state policy by applying regret-matching.
-
-        Args:
-          state: Current OpenSpiel game state.
-          player: (int) Player index over which to compute regrets.
-
-        Returns:
-          1. (np-array) regret values for info state actions indexed by action.
-          2. (np-array) Matched regrets, prob for actions indexed by action.
-        """
+    def _get_info_state_legal_actions(self, state, player):
         if self._oshi_zumo:
             observation_tensor = state.observation_tensor(player)
             info_state = tf.constant(observation_tensor, dtype=tf.float32)
@@ -1250,6 +1240,20 @@ class ESCHERSolver(policy.Policy):
                 state.information_state_tensor(player), dtype=tf.float32)
         legal_actions_mask = tf.constant(
             state.legal_actions_mask(player), dtype=tf.float32)
+        return info_state, legal_actions_mask
+
+    def _sample_action_from_regret(self, state, player):
+        """Returns an info state policy by applying regret-matching.
+
+        Args:
+          state: Current OpenSpiel game state.
+          player: (int) Player index over which to compute regrets.
+
+        Returns:
+          1. (np-array) regret values for info state actions indexed by action.
+          2. (np-array) Matched regrets, prob for actions indexed by action.
+        """
+        info_state, legal_actions_mask = self._get_info_state_legal_actions(state=state, player=player)
         self._example_info_state[player] = info_state
         self._example_legal_actions_mask[player] = legal_actions_mask
         regrets, matched_regrets = self._get_matched_regrets(

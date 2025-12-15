@@ -38,7 +38,7 @@ import random
 import numpy as np
 import tensorflow as tf
 
-from nn_classes import (PolicyNetwork,RegretNetwork,ValueNetwork)
+from nn_classes import (PolicyNetwork, RegretNetwork, ValueNetwork)
 from open_spiel.python import policy
 from open_spiel.python.algorithms import exploitability
 
