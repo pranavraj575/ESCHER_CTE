@@ -1380,7 +1380,7 @@ class ESCHERSolver(policy.Policy):
         estimated_value = self._get_estimated_value(hist_state, legal_actions_mask)
         if player == 1:
             estimated_value = -estimated_value
-        return estimated_value.numpy()
+        return estimated_value.numpy().item()
 
     def action_probabilities(self, state):
         """Returns action probabilities dict for a single batch."""
