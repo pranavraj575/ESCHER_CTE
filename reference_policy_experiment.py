@@ -2,22 +2,30 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    all_trials = ['default',  # default ESCHER
-                  'ESCHER_CTE',  # ESCHER CTE
-                  'true_NE',  # ESCHER given a mixed version of the true NE to start with
-                  'true_NE_warm',  # true NE + warm starting
-                  ]
+    all_trials = [
+        "default",  # default ESCHER
+        "ESCHER_CTE",  # ESCHER CTE
+        "true_NE",  # ESCHER given a mixed version of the true NE to start with
+        "true_NE_warm",  # true NE + warm starting
+    ]
     # TODO: implement warm starts
-    parser.add_argument('--game', required=True, help='name of pyspiel game', action='store')
-    parser.add_argument('--trial', required=False, default='default', help='trial to use', choices=all_trials)
-    parser.add_argument('--plot', required=False, action='store_true', help='only plot past results')
-    parser.add_argument('--recollect', required=False, action='store_true', help='collect results again')
-    parser.add_argument('--p',
-                        required=False,
-                        default=0.5,
-                        help='if mixing reference policy, how much should the mixed (i.e. uniform) policy be included',
-                        type=float,
-                        )
+    parser.add_argument("--game", required=True, help="name of pyspiel game", action="store")
+    parser.add_argument(
+        "--trial",
+        required=False,
+        default="default",
+        help="trial to use",
+        choices=all_trials,
+    )
+    parser.add_argument("--plot", required=False, action="store_true", help="only plot past results")
+    parser.add_argument("--recollect", required=False, action="store_true", help="collect results again")
+    parser.add_argument(
+        "--p",
+        required=False,
+        default=0.5,
+        help="if mixing reference policy, how much should the mixed (i.e. uniform) policy be included",
+        type=float,
+    )
 
     args = parser.parse_args()
     from ESCHER import ESCHERSolver, PolicyMixer
@@ -26,29 +34,29 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt, os
     import tensorflow as tf
 
-    train_device = 'cpu'
+    train_device = "cpu"
 
-    tf.config.set_visible_devices([], 'GPU')
+    tf.config.set_visible_devices([], "GPU")
     game_name = args.game
 
     TRIAL = args.trial
     recollect = args.recollect
     DIR = os.path.dirname(os.path.abspath(__file__))
-    save_path = os.path.join(DIR, 'tmp', 'results', game_name, TRIAL)
+    save_path = os.path.join(DIR, "tmp", "results", game_name, TRIAL)
     os.makedirs(save_path, exist_ok=True)
 
     game = pyspiel.load_game(game_name)
 
-    convs_path = save_path + '_convs.npy'
+    convs_path = save_path + "_convs.npy"
     if not args.plot:
-        print('saving convs to', convs_path)
+        print("saving convs to", convs_path)
 
     ref_policy = None
-    if TRIAL == 'true_NE' or TRIAL == 'true_NE_warm':
+    if TRIAL == "true_NE" or TRIAL == "true_NE_warm":
         solver = pyspiel.CFRPlusSolver(game)
-        print('solving game directly using pyspiel\'s CFR')
+        print("solving game directly using pyspiel's CFR")
         for i in range(1420):
-            if not i%100:
+            if not i % 100:
                 average_policy = solver.average_policy()
                 exploit = pyspiel.exploitability(game, average_policy)
                 print(f"iteration {i}; Exploitability: {exploit}")
@@ -65,9 +73,9 @@ if __name__ == "__main__":
     batch_size_regret = 256
     batch_size_val = 256
 
-    policy_network_layers = (128,128)
-    regret_network_layers = (128,128)
-    value_network_layers = (128,128)
+    policy_network_layers = (128, 128)
+    regret_network_layers = (128, 128)
+    value_network_layers = (128, 128)
 
     check_exploitability_every = 10
 
@@ -86,7 +94,7 @@ if __name__ == "__main__":
                 policy_network_train_steps=policy_net_train_steps,
                 batch_size_regret=batch_size_regret,
                 value_network_train_steps=val_train_steps,
-                save_regret_networks=os.path.join(save_path, 'regrets'),
+                save_regret_networks=os.path.join(save_path, "regrets"),
                 batch_size_value=batch_size_val,
                 train_device=train_device,
                 reference_policy=ref_policy,
@@ -94,7 +102,7 @@ if __name__ == "__main__":
             )
 
             sample_state = game.new_initial_state()
-            if game_name == 'kuhn_poker':
+            if game_name == "kuhn_poker":
                 sample_state.apply_action(1)
                 sample_state.apply_action(0)
             else:
@@ -102,39 +110,47 @@ if __name__ == "__main__":
                     sample_state.apply_action(np.random.choice(sample_state.legal_actions()))
             sample_player = sample_state.current_player()
 
-            info_state, legal_actions_mask = (deep_cfr_solver._get_info_state_legal_actions(state=sample_state, player=sample_player))
+            info_state, legal_actions_mask = deep_cfr_solver._get_info_state_legal_actions(
+                state=sample_state, player=sample_player
+            )
 
             regrets = deep_cfr_solver._regret_networks[sample_player](
-                (tf.expand_dims(info_state, axis=0), legal_actions_mask),
-                training=False)[0]
+                (tf.expand_dims(info_state, axis=0), legal_actions_mask), training=False
+            )[0]
             all_regs = [regrets]
             all_convs = []
             for _ in range(10):
                 regret, pol_loss, convs, nodes = deep_cfr_solver.solve(save_path_convs=save_path)
                 regrets2 = deep_cfr_solver._regret_networks[sample_player](
                     (tf.expand_dims(info_state, axis=0), legal_actions_mask),
-                    training=False)[0]
+                    training=False,
+                )[0]
                 all_regs.append(regrets2)
                 all_convs.append(convs)
-                print('p1 card:', sample_state.information_state_string())
-                print('regrets:')
+                print("p1 card:", sample_state.information_state_string())
+                print("regrets:")
                 for reg in all_regs:
-                    print('\t', reg)
-                print('solved policy:', solver.average_policy().action_probabilities(sample_state))
-                print('convs', all_convs)
+                    print("\t", reg)
+                print(
+                    "solved policy:",
+                    solver.average_policy().action_probabilities(sample_state),
+                )
+                print("convs", all_convs)
             quit()
     if args.plot:
         for trial in all_trials:
-            convs_path = os.path.join(DIR, 'tmp', 'results', game_name, trial) + '_convs.npy'
+            convs_path = os.path.join(DIR, "tmp", "results", game_name, trial) + "_convs.npy"
             if os.path.exists(convs_path):
-                print('loading convs from', convs_path)
+                print("loading convs from", convs_path)
                 convs = np.load(convs_path)
                 print(convs)
-                plt.plot(np.arange(len(convs))*check_exploitability_every,
-                         convs,
-                         label=trial)
-            plt.xlabel('Epochs')
-            plt.ylabel('exploitability (nash conv)')
+                plt.plot(
+                    np.arange(len(convs)) * check_exploitability_every,
+                    convs,
+                    label=trial,
+                )
+            plt.xlabel("Epochs")
+            plt.ylabel("exploitability (nash conv)")
         plt.legend()
         plt.show()
         plt.close()
